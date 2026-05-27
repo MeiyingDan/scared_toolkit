@@ -30,6 +30,8 @@ parser.add_argument('--undistort','-u', help='generate undistorted depthmap and 
 parser.add_argument('--disparity','-di', help='generate rectified views and disparity maps', action='store_true')
 parser.add_argument('--alpha', help='alpha parameter to use during stereo rectification, default=-1', type=float, default=-1)
 parser.add_argument('--scale_factor', help='scale factor to use when storing subpixel pngs, default=128.0', type=float, default=128.0)# check if this produces a bug
+parser.add_argument('--allow_missing_gt', action='store_true',
+                    help='continue processing when scene_points.tar.gz is missing and skip GT-dependent outputs')
 
 
 def undistort_map(K, D, size_hw):
@@ -48,9 +50,10 @@ def main():
     root_dir = Path(args.root_dir)
     #recursively find all keyframe directories
     if args.recursive:
-        keyframe_dirs = sorted([p for p in root_dir.rglob('**/keyframe*') if p.is_dir()]) 
+        keyframe_dirs = sorted([p for p in root_dir.rglob('**/keyframe*') if p.is_dir()])
     else:
         keyframe_dirs = [root_dir]
+
     for kf in tqdm(keyframe_dirs,desc='processed keyframes'):
         valid_list=[]
         # create output directories
@@ -62,15 +65,39 @@ def main():
         calib = stereo_calib.load(kf/'endoscope_calibration.yaml')
 
         # Keyframe 5 is a single frame
-        if (kf/'data'/'rgb.mp4').is_file():
-            video_loader = cv2.VideoCapture(str(kf/'data'/'rgb.mp4'))
-            tqdm.write('loading tarfile sequence, this will take a lot of time...')
+        rgb_candidates = [kf/'data'/'rgb.mp4', kf/'rgb.mp4']
+        scene_points_candidates = [kf/'data'/'scene_points.tar.gz', kf/'scene_points.tar.gz']
+        rgb_path = next((p for p in rgb_candidates if p.is_file()), rgb_candidates[0])
+        scene_points_path = next((p for p in scene_points_candidates if p.is_file()), scene_points_candidates[0])
+        has_video = rgb_path.is_file()
+        has_gt = scene_points_path.is_file()
 
-            # this will create a dictionary with all the available frames
-            gt_sequence = sio.Img3dTarLoader(kf/'data'/'scene_points.tar.gz')
-            frame_count = len(gt_sequence)
+        if has_video:
+            video_loader = cv2.VideoCapture(str(rgb_path))
+            if has_gt:
+                tqdm.write('loading tarfile sequence, this will take a lot of time...')
+                gt_sequence = sio.Img3dTarLoader(scene_points_path)
+                frame_count = len(gt_sequence)
+            else:
+                if not args.allow_missing_gt:
+                    raise FileNotFoundError(
+                        f'missing {scene_points_path}. Use --allow_missing_gt to skip GT-dependent outputs.'
+                    )
+                frame_count = int(video_loader.get(cv2.CAP_PROP_FRAME_COUNT))
+                if frame_count <= 0:
+                    raise RuntimeError(
+                        f'could not determine frame count for {rgb_path}. Please verify the file integrity.'
+                    )
+                tqdm.write(f'GT not found for {kf}. Processing {frame_count} frames without GT outputs.')
         else:
             frame_count = 1
+            has_gt = (kf/'left_depth_map.tiff').is_file()
+            if not has_gt and not args.allow_missing_gt:
+                raise FileNotFoundError(
+                    f'missing {kf/"left_depth_map.tiff"}. Use --allow_missing_gt to skip GT-dependent outputs.'
+                )
+            if not has_gt:
+                tqdm.write(f'GT not found for {kf}. Processing single frame without GT outputs.')
 
         # initialize undistortion maps to avoid calling cv2.undistort in each iteration
         if args.undistort:
@@ -83,25 +110,31 @@ def main():
         
             if frame_count !=1:
                 ret, frames = video_loader.read()
+                if not ret:
+                    break
                 left_img = frames[: 1024]
                 right_img = frames[1024:]
-                assert ret
-                gt_img3d = gt_sequence[frame_id][:left_img.shape[0]]
+                if has_gt:
+                    gt_img3d = gt_sequence[frame_id][:left_img.shape[0]]
             else:
                 left_img = cv2.imread(str(kf/'Left_Image.png'))
                 right_img = cv2.imread(str(kf/'Right_Image.png'))
-                gt_img3d = sio.load_img3d(kf/'left_depth_map.tiff')
+                if has_gt:
+                    gt_img3d = sio.load_img3d(kf/'left_depth_map.tiff')
             
             
             assert left_img is not None
 
             if args.depth:
-                depthmap = cvt.img3d_to_depthmap(gt_img3d)
                 Path(out_dir/'data'/'left').mkdir(exist_ok=True, parents=True)
                 cv2.imwrite(str(out_dir/'data'/'left'/f'{frame_id:06d}.png'), left_img)
-                sio.save_subpix_png(out_dir/'data'/'depthmap'/f'{frame_id:06d}.png',
-                                    depthmap, args.scale_factor)
-            gt_ptcloud = cvt.img3d_to_ptcloud(gt_img3d)
+                if has_gt:
+                    depthmap = cvt.img3d_to_depthmap(gt_img3d)
+                    sio.save_subpix_png(out_dir/'data'/'depthmap'/f'{frame_id:06d}.png',
+                                        depthmap, args.scale_factor)
+
+            if has_gt:
+                gt_ptcloud = cvt.img3d_to_ptcloud(gt_img3d)
 
             if args.undistort:
 
@@ -110,14 +143,13 @@ def main():
                                                 und_maps_left[1],
                                                 cv2.INTER_LINEAR)
                 
-                depthmap_undistorted = cvt.ptcloud_to_depthmap(gt_ptcloud,
-                                                            calib['K1'],
-                                                            calib['D1'],
-                                                            left_img.shape[:2])
-                
-                
-                sio.save_subpix_png(out_dir/'data'/'depthmap_undistorted'/f'{frame_id:06d}.png',
-                                    depthmap_undistorted, args.scale_factor)
+                if has_gt:
+                    depthmap_undistorted = cvt.ptcloud_to_depthmap(gt_ptcloud,
+                                                                calib['K1'],
+                                                                calib['D1'],
+                                                                left_img.shape[:2])
+                    sio.save_subpix_png(out_dir/'data'/'depthmap_undistorted'/f'{frame_id:06d}.png',
+                                        depthmap_undistorted, args.scale_factor)
                 Path(out_dir/'data'/'left_undistorted').mkdir(exist_ok=True, parents=True)
                 cv2.imwrite(str(out_dir/'data'/'left_undistorted'/f'{frame_id:06d}.png'),
                                 left_rgb_undistored)
@@ -125,29 +157,31 @@ def main():
             if args.disparity:
                 left_rect, right_rect = stereo_calib.rectify(left_img, right_img,
                                                             args.alpha)
-                # We need to rotate point by R1 in order to express them in the
-                # left rectified frame of reference.
-                ptcloud_rotated = cvt.transform_pts(gt_ptcloud,
-                                                    cvt.create_RT(R=calib['R1']))
-                disparity = cvt.ptcloud_to_disparity(ptcloud_rotated,
-                                                    calib['P1'], calib['P2'],
-                                                    right_rect.shape[:2])
-                depthmap_rectified = cvt.ptcloud_to_depthmap(ptcloud_rotated,
-                                                            calib['P1'][:,:3],
-                                                            np.zeros(5),
-                                                            right_rect.shape[:2])
-                
-                
                 Path(out_dir/'data'/'left_rectified').mkdir(exist_ok=True, parents=True)
                 Path(out_dir/'data'/'right_rectified').mkdir(exist_ok=True, parents=True)
                 cv2.imwrite(str(out_dir/'data'/'left_rectified'/f'{frame_id:06d}.png'),left_rect)
                 cv2.imwrite(str(out_dir/'data'/'right_rectified'/f'{frame_id:06d}.png'),right_rect)
-                sio.save_subpix_png(out_dir/'data'/'depthmap_rectified'/f'{frame_id:06d}.png',
-                                    depthmap_rectified, args.scale_factor)
-                sio.save_subpix_png(out_dir/'data'/'disparity'/f'{frame_id:06d}.png',
-                                    disparity, args.scale_factor)
+                if has_gt:
+                    # We need to rotate point by R1 in order to express them in the
+                    # left rectified frame of reference.
+                    ptcloud_rotated = cvt.transform_pts(gt_ptcloud,
+                                                        cvt.create_RT(R=calib['R1']))
+                    disparity = cvt.ptcloud_to_disparity(ptcloud_rotated,
+                                                        calib['P1'], calib['P2'],
+                                                        right_rect.shape[:2])
+                    depthmap_rectified = cvt.ptcloud_to_depthmap(ptcloud_rotated,
+                                                                calib['P1'][:,:3],
+                                                                np.zeros(5),
+                                                                right_rect.shape[:2])
+                    sio.save_subpix_png(out_dir/'data'/'depthmap_rectified'/f'{frame_id:06d}.png',
+                                        depthmap_rectified, args.scale_factor)
+                    sio.save_subpix_png(out_dir/'data'/'disparity'/f'{frame_id:06d}.png',
+                                        disparity, args.scale_factor)
             #compute pixel coverage
-            coverage = 1 - (np.count_nonzero(np.isnan(gt_img3d[...,-2]))/pixel_area)
+            if has_gt:
+                coverage = 1 - (np.count_nonzero(np.isnan(gt_img3d[...,-2]))/pixel_area)
+            else:
+                coverage = 1.0
             if coverage>=.1:
                 valid_list.append(frame_id)
             
