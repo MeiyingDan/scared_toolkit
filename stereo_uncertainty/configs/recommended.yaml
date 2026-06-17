@@ -1,0 +1,29 @@
+# Reference hyper-parameters for FULL training runs (documentation only; the
+# CLIs in train.py / evaluate.py take these as flags). Tune to your GPU memory.
+
+common:
+  index: outputs/indices/index.json
+  val_groups: 2
+  test_groups: 2
+  grasp_tau_mm: 2.0       # SU_GRASP_TAU_MM
+  clinical_bands_mm: [2.0, 10.0]   # SU_SAFE_MM, SU_RISKY_MM
+
+variant_2d:
+  out_size: [256, 320]
+  base: 32
+  batch_size: 4
+  lr: 1.0e-3
+  l1_weight: 0.1
+  epochs: 30
+  augment: true
+
+variant_3d:
+  n_points: 8192
+  feat_dim: 512
+  batch_size: 6
+  lr: 1.0e-3
+  l1_weight: 0.1
+  epochs: 30
+
+# Per-method models: rerun train/evaluate with --method {IGEV,FoundationStereo,
+# CREStereo,HRS,FFS,SGM}. The split is shared across methods (same scenes).

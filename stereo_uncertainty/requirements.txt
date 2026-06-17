@@ -1,0 +1,11 @@
+# Step-2 learned stereo uncertainty.
+# Tested with the `openstereo` conda env (torch 2.6 + cu124).
+# All of these are already present in that env EXCEPT plyfile, which this
+# package does NOT require (we ship a minimal PLY reader/writer in ply_io.py).
+numpy>=1.23
+opencv-python>=4.6
+scipy>=1.9
+scikit-learn>=1.1
+pandas>=1.5
+matplotlib>=3.6
+torch>=2.0
