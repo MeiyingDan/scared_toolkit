@@ -206,9 +206,8 @@ def main() -> int:
 
 			# Convert method disparities to original-view depth and save as official submission tiff
 			for method_name, run_dir in sorted(runs.items()):
-				pred_disp_dir = run_dir / dataset / keyframe / "data" / "disparity"
+				pred_disp_dir = run_dir / dataset / keyframe / "disparity"
 				if not pred_disp_dir.is_dir():
-					print(f"[warn] missing prediction dir for {method_name}: {pred_disp_dir}")
 					continue
 
 				for frame_id in valid_ids:

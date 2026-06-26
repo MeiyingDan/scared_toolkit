@@ -371,7 +371,7 @@ def main() -> int:
                 gt_disp_path = gt_disp_dir / frame_name
 
                 for method, run_dir in sorted(run_map.items()):
-                    pred_disp = run_dir / dataset / keyframe / "data" / "disparity" / frame_name
+                    pred_disp = run_dir / dataset / keyframe / "disparity" / frame_name
                     frame_out_dir = out_dir / method / dataset / keyframe
 
                     written, warns = export_one_frame(

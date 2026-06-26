@@ -2,7 +2,7 @@
 """Unified rectified evaluation for SCARED dataset 8/9.
 
 All metrics are computed in the **rectified coordinate system**:
-- Disparity space (GT ``data/disparity`` vs pred ``data/disparity``):
+- Disparity space (GT ``data/disparity`` vs pred ``disparity``):
   EPE (px), D1 (%), bad3 (%), bad5 (%)
 - Depth space (GT ``data/depthmap_rectified`` vs depth from pred disparity via Q):
   MAE (mm), RMSE (mm)
@@ -127,7 +127,7 @@ def eval_keyframe(
     pred_kf = pred_root / dataset / keyframe
     gt_disp_dir = gt_kf / "data" / "disparity"
     gt_depth_dir = gt_kf / "data" / "depthmap_rectified"
-    pred_disp_dir = pred_kf / "data" / "disparity"
+    pred_disp_dir = pred_kf / "disparity"
     valid_csv = gt_kf / "valid.csv"
     calib_path = gt_kf / "stereo_calib.json"
 

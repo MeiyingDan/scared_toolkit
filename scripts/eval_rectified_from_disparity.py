@@ -55,14 +55,13 @@ def eval_run(
             gt_kf = gt_root / dataset / keyframe
             pred_kf = pred_root / dataset / keyframe
             gt_depth_dir = gt_kf / "data" / "depthmap_rectified"
-            pred_disp_dir = pred_kf / "data" / "disparity"
+            pred_disp_dir = pred_kf / "disparity"
             valid_csv = gt_kf / "valid.csv"
             calib_path = gt_kf / "stereo_calib.json"
 
             if not gt_depth_dir.is_dir() or not pred_disp_dir.is_dir():
                 print(f"[warn] skip {dataset}/{keyframe}: missing GT or pred dir", file=sys.stderr)
                 continue
-            if not valid_csv.is_file() or not calib_path.is_file():
                 print(f"[warn] skip {dataset}/{keyframe}: missing valid.csv or calib", file=sys.stderr)
                 continue
 
